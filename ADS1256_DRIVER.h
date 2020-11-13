@@ -146,7 +146,7 @@ static void ADS1256_SENDCMD(uint8_t CMD) {
 
 /**
 * Write to a register on the ADS1256
-*
+* 
 * Pulls the CS pin low then sends the WREG command 
 * followed by the data and then raises the CS pin high
 *
@@ -165,7 +165,7 @@ static void ADS1256_WREG(uint8_t REG, uint8_t DATA) {
 
 /**
 * Write to a register on the ADS1256
-*
+* 
 * Pulls the CS pin low then sends the WREG command
 * followed by the data and then raises the CS pin high
 *
