@@ -1,0 +1,5 @@
+bin/
+obj/
+main.cpp
+*.vcxproj
+*.vcxproj.user
