@@ -2,6 +2,8 @@
 #ifndef BCM2835_DRIVER_H
 #define BCM2835_DRIVER_H
 
+#include <iostream>
+
 /* BCM2835.h Provided by AirSpayce
 * https://www.airspayce.com/mikem/bcm2835/
 */
@@ -11,43 +13,22 @@
 #define ADS_CS_PIN 22
 #define ADS_DRDY_PIN 17
 
+#define CLOCK_DIVIDER 64	// Advisably product of 2^n in range (1 - 32786)
+
 /**
  * Begin SPI operations and assign pins required
 */
-static void BCM2835_GPIO_INIT() {
-	// Set pins to output
-	bcm2835_gpio_fsel(ADS_RST_PIN,  BCM2835_GPIO_FSEL_OUTP);
-	bcm2835_gpio_fsel(ADS_CS_PIN,   BCM2835_GPIO_FSEL_OUTP);
-
-	// Set pins to input
-	bcm2835_gpio_fsel(ADS_DRDY_PIN, BCM2835_GPIO_FSEL_INPT);
-}
+void BCM2835_GPIO_Initialize();
 
 /**
  * End SPI operations and return assigned pins to default input
  * Close BCM2835 library
 */
-static void BCM2835_GPIO_EXIT() {
-	bcm2835_spi_end();
-	bcm2835_close();
-}
+void BCM2835_GPIO_Exit();
 
 /**
  * Initialize BCM2835 library and SPI protocol
- * @return 0 if successful otherwise 1
+ * @return 1 if successful otherwise 0
 */
-uint8_t BCM2835_INIT() {
-	if (bcm2835_init()) {
-		BCM2835_GPIO_INIT();
-
-		bcm2835_spi_begin();
-		bcm2835_spi_setBitOrder(BCM2835_SPI_BIT_ORDER_MSBFIRST);	// SPI Mode 0 only supports MSB bit order
-		bcm2835_spi_setDataMode(BCM2835_SPI_MODE1);					// Set SPI Mode 0, hardware SPI chips
-		bcm2835_spi_setClockDivider(BCM2835_SPI_CLOCK_DIVIDER_64);	// 6.250 Mhz SPI frequency
-
-		return 0;
-	}
-	
-	return 1;
-}
+int BCM2835_SPI_Initialize();
 #endif

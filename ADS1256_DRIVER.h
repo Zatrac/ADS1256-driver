@@ -2,13 +2,29 @@
 #ifndef ADS1256_DRIVER_H
 #define ADS1256_DRIVER_H
 
+#include <bitset>
+#include <iostream>
+
 /* BCM2835.h Provided by AirSpayce
 * https://www.airspayce.com/mikem/bcm2835/
 */
 #include <bcm2835.h>
-#include <chrono>
-#include <thread>
-#include "BCM2835_DRIVER.h"
+#include "BCM2835_Driver.h"
+
+#define ADS_RST_PIN 18
+#define ADS_CS_PIN 22
+#define ADS_DRDY_PIN 17
+
+#define DRDY_TIMEOUT 5000000
+
+#define SENSOR_RESISTANCE 50
+
+#define RPI3_CLOCK_RATE 400000000	// 400 MHz
+#define MASTER_CLOCK_PERIOD 1 / (RPI3_CLOCK_RATE / CLOCK_DIVIDER)
+
+#define MAXIMUM_POWER_READING 5000
+
+#define OUTPUT_CONSOLE true
 
 /**
 * Register map as defined in the datasheet
@@ -110,25 +126,57 @@ typedef enum {
 
 
 /**
-* Resets the ADS1256 chip
-*/
-static void ADS1256_RST() {
-	bcm2835_gpio_write(ADS_RST_PIN, 1);
-	std::this_thread::sleep_for(std::chrono::microseconds(200));
-	bcm2835_gpio_write(ADS_RST_PIN, 0);
-	std::this_thread::sleep_for(std::chrono::microseconds(200));
-	bcm2835_gpio_write(ADS_RST_PIN, 1);
-}
-
+ * Sets the Chip Select pin on the ADS
+ */
+void ADS1256_Chip_Select(bool signal);
 
 /**
 * Checks if the DRDY pin is low
+* 
 * @return bool True if low else false
 */
-static bool ADS1256_DRDY() {
+bool ADS1256_Data_Ready();
 
-}
+/**
+* Poll for the DRDY pin until low
+* 
+* @return int 1 if DRDY went low, 0 if timed out, see DRDY_TIMEOUT constant
+*/
+int ADS1256_Poll_Data_Ready();
 
+
+/**
+ * Send a byte via SPI with a little delay
+ */
+void ADS1256_Send_Byte(uint8_t byte);
+
+/**
+ * Read a byte via SPI
+ * 
+ * @return uint8_t Read data byte from the SPI slave
+ */
+uint8_t ADS1256_Read_Byte();
+
+/*
+* Read 3 bytes via SPI and pack them into a word
+* 
+* @param is_RDATAC is the chip in read data continously mode?
+* If the chip is not in RDATAC, the function will call RDATA and read the next byte manually
+*/
+uint32_t ADS1256_Read_Word(bool is_RDATAC);
+
+/**
+* Resets the ADS1256 chip
+*/
+void ADS1256_Reset();
+
+/**
+* Configures the ADS1256's gain and data rate by parameters
+* 
+* @param gain level from the ADS1256_GAIN type
+* @param rate from the ADS1256_DRATE type
+*/
+void ADS1256_Configure(ADS1256_GAIN gain, ADS1256_DRATE rate);
 
 /**
 * Send a command to the ADS1256
@@ -137,12 +185,7 @@ static bool ADS1256_DRDY() {
 * 
 * @param ADS1256_COMMANDS The command defined in the ADS1256_COMMANDS enum
 */
-static void ADS1256_SENDCMD(ADS1256_COMMANDS CMD) {
-	bcm2835_gpio_write(ADS_CS_PIN, 0);
-	bcm2835_spi_transfer(CMD);
-	bcm2835_gpio_write(ADS_CS_PIN, 1);
-}
-
+void ADS1256_Send_Cmd(ADS1256_COMMANDS CMD);
 
 /**
 * Write to a register on the ADS1256
@@ -153,15 +196,7 @@ static void ADS1256_SENDCMD(ADS1256_COMMANDS CMD) {
 * @param ADS1256_REGISTERS The register defined in the ADS1256_REGISTERS enum
 * @param uint8_t The value to set the register
 */
-static void ADS1256_WREG(ADS1256_REGISTERS REG, uint8_t DATA) {
-	bcm2835_gpio_write(ADS_CS_PIN, 0);
-
-	bcm2835_spi_transfer(CMD_WREG | REG);
-	bcm2835_spi_transfer((0x0 << 4) | DATA);
-
-	bcm2835_gpio_write(ADS_CS_PIN, 1);
-}
-
+void ADS1256_WREG(ADS1256_REGISTERS REG, uint8_t DATA);
 
 /**
 * Write to a register on the ADS1256
@@ -172,55 +207,48 @@ static void ADS1256_WREG(ADS1256_REGISTERS REG, uint8_t DATA) {
 * @param ADS1256_REGISTERS REG. The register defined in the ADS1256_REGISTERS enum
 * @return uint8_t The value from REG
 */
-static uint8_t ADS1256_RREG(ADS1256_REGISTERS REG) {
-	uint8_t value = 0;
+uint8_t ADS1256_RREG(ADS1256_REGISTERS REG);
 
-	bcm2835_gpio_write(ADS_CS_PIN, 0);
-	bcm2835_spi_transfer(CMD_RREG | REG);	// 1-ST Control Byte: Read from REG
-	bcm2835_spi_transfer(0x00);				// 2-ND Control Byte: Read from a single register
-
-	std::this_thread::sleep_for(std::chrono::microseconds(10));
-
-	value = bcm2835_spi_transfer(0xFF);		// SYNC and Wakeup
-	bcm2835_gpio_write(ADS_CS_PIN, 1);
-
-	return value;
-}
-
+/*
+* Sets the ADS1256 chip into Read Data Continuous mode
+* This enables the continuous output of new data on each DRDY without subsequent read commands
+* @return int32_t 24 bits of output data packed into a single word
+*/
+void ADS1256_Enable_RDATAC();
 
 /**
 * Set the channel to be read
 * @param ADS1256_CHANNELS A channel as defined in the ADS1256_CHANNELS enum
 */
-static void ADS1256_SETCHANNEL(ADS1256_CHANNELS CHANNEL) {
-	ADS1256_WREG(REG_MUX, (CHANNEL << 4) | (1 << 3));
-}
-
+void ADS1256_Set_Channel(uint8_t CHANNEL);
 
 /**
-* Reads the ADS1256 chip ID via RREG
-* @return uint8_t Chip ID
+* Dump the contents of all registers on the ADS1256 chip in binary form to cout
 */
-uint8_t ADS1256_GET_ID() {
-	return ADS1256_RREG(REG_STATUS) >> 4;
-}
+void ADS1256_Dump_Registers();
 
+/**
+* Reads the ADS1256 status register via RREG and isolates the ID bits
+* @return int Chip ID
+*/
+int ADS1256_Get_Id();
+
+/**
+* Reads the ADS1256 status register via RREG and isolates the BUFFEN (Buffer Enabled) bit
+* @return bool Buffer enabled
+*/
+bool ADS1256_BUFFEN();
+
+/**
+* Reads the ADS1256 status register via RREG and isolates the ACAL (Auto calibration) bit
+* @return bool Auto calibration enabled
+*/
+bool ADS1256_ACAL();
 
 /**
 * Reads the ADS1256 DRATE register via RREG
 * @return uint8_t Datarate in samples per second
 */
-uint8_t ADS1256_GET_DRATE() {
-	return ADS1256_RREG(REG_DRATE);
-}
+uint8_t ADS1256_GET_DRATE();
 
-
-/**
-* Initialize the ADS1256 chip
-*/
-uint8_t ADS1256_INIT() {
-	// Raise RST pin high before initializing
-	bcm2835_gpio_write(ADS_RST_PIN, 1);
-	
-}
 #endif
